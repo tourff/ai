@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Voice ChatGPT Pro</title>
+<title>Ultimate Voice+Text ChatGPT</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
 body { font-family: "Inter", sans-serif; }
@@ -18,7 +18,7 @@ body { font-family: "Inter", sans-serif; }
   
   <!-- Header -->
   <div class="p-4 border-b dark:border-gray-700 flex justify-between items-center">
-    <h1 class="text-lg font-bold text-gray-800 dark:text-gray-100">Voice ChatGPT Pro</h1>
+    <h1 class="text-lg font-bold text-gray-800 dark:text-gray-100">Ultimate Voice+Text ChatGPT</h1>
     <div class="flex space-x-2">
       <button id="toggleDark" class="px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded">🌙/☀️</button>
       <button id="resetChat" class="px-2 py-1 bg-red-400 text-white rounded">🗑️ Reset</button>
@@ -28,17 +28,28 @@ body { font-family: "Inter", sans-serif; }
   <!-- Chat window -->
   <div id="chat" class="flex-1 overflow-y-auto p-4 space-y-2"></div>
 
-  <!-- Input & voice controls -->
+  <!-- Text + Voice input controls -->
   <div class="p-4 border-t dark:border-gray-700 flex flex-col space-y-2">
+    <!-- Text input -->
+    <div class="flex space-x-2">
+      <input id="textInput" type="text" placeholder="Type a message..." class="flex-1 px-3 py-2 rounded border dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600">
+      <button id="sendBtn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Send</button>
+    </div>
+    <!-- Voice controls -->
     <div class="flex space-x-2">
       <button id="startBtn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">🎤 Start</button>
       <button id="stopBtn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">⏹️ Stop</button>
     </div>
+    <!-- Voice options -->
     <div class="flex space-x-2 items-center">
       <label class="text-gray-700 dark:text-gray-200">Pitch:</label>
       <input id="voicePitch" type="range" min="0.5" max="2" step="0.1" value="1" class="flex-1">
       <label class="text-gray-700 dark:text-gray-200">Speed:</label>
       <input id="voiceRate" type="range" min="0.5" max="2" step="0.1" value="1" class="flex-1">
+      <label class="text-gray-700 dark:text-gray-200">Voice:</label>
+      <select id="voiceSelect" class="flex-1">
+        <option value="default">Default</option>
+      </select>
     </div>
   </div>
 </div>
@@ -49,26 +60,42 @@ const toggleBtn = document.getElementById('toggleDark');
 const resetBtn = document.getElementById('resetChat');
 const pitchInput = document.getElementById('voicePitch');
 const rateInput = document.getElementById('voiceRate');
+const voiceSelect = document.getElementById('voiceSelect');
+const textInput = document.getElementById('textInput');
+const sendBtn = document.getElementById('sendBtn');
 
 toggleBtn.onclick = () => document.body.classList.toggle('dark');
-resetBtn.onclick = () => chat.innerHTML = '';
+resetBtn.onclick = async () => {
+  chat.innerHTML = '';
+  await fetch('/api/reset', {method:'POST'});
+};
 
+// Speech recognition
 let recognition;
 if ('webkitSpeechRecognition' in window) {
   recognition = new webkitSpeechRecognition();
 } else { alert("Browser does not support Speech Recognition"); }
-
 recognition.continuous = true;
 recognition.interimResults = false;
 recognition.lang = "en-US";
 
-recognition.onresult = async (event) => {
-  const transcript = event.results[event.results.length -1][0].transcript.trim();
+// Populate voices
+let voices = [];
+function loadVoices() {
+  voices = speechSynthesis.getVoices();
+  voiceSelect.innerHTML = voices.map(v => `<option value="${v.name}">${v.name}</option>`).join('');
+}
+speechSynthesis.onvoiceschanged = loadVoices;
+loadVoices();
 
-  // User bubble
+// Function to send message to AI
+async function sendMessage(msg, isVoice=false){
+  if(!msg) return;
+
+  // Show user bubble
   const userDiv = document.createElement('div');
   userDiv.className = "flex justify-end";
-  userDiv.innerHTML = `<div class="bg-blue-600 text-white px-4 py-2 rounded-lg max-w-[75%]">${transcript} 😎</div>`;
+  userDiv.innerHTML = `<div class="bg-blue-600 text-white px-4 py-2 rounded-lg max-w-[75%]">${msg} ${isVoice?'🎤':''}</div>`;
   chat.appendChild(userDiv);
   chat.scrollTop = chat.scrollHeight;
 
@@ -76,32 +103,50 @@ recognition.onresult = async (event) => {
   const res = await fetch('/api/chat', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({message: transcript})
+    body: JSON.stringify({message: msg})
   });
   const data = await res.json();
 
-  // AI bubble
+  // Show AI bubble
   const aiDiv = document.createElement('div');
   aiDiv.className = "flex justify-start";
   aiDiv.innerHTML = `<div class="bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 px-4 py-2 rounded-lg max-w-[75%]">🤖 ${data.response}</div>`;
   chat.appendChild(aiDiv);
   chat.scrollTop = chat.scrollHeight;
 
-  // Voice output with pitch & rate
+  // AI voice output
   const utter = new SpeechSynthesisUtterance(data.response);
   utter.lang = "en-US";
   utter.pitch = parseFloat(pitchInput.value);
   utter.rate = parseFloat(rateInput.value);
+  if(voiceSelect.value!=="default"){
+    const selectedVoice = voices.find(v => v.name===voiceSelect.value);
+    if(selectedVoice) utter.voice = selectedVoice;
+  }
   speechSynthesis.speak(utter);
 
-  // Optional sound effect
+  // Sound effect
   const audio = new Audio('https://www.soundjay.com/button/sounds/button-16.mp3');
   audio.play();
-};
+}
+
+// Text send button
+sendBtn.onclick = () => {
+  sendMessage(textInput.value);
+  textInput.value = '';
+}
+textInput.addEventListener('keypress', e => {
+  if(e.key==='Enter') { sendBtn.click(); }
+});
 
 // Voice buttons
 document.getElementById('startBtn').onclick = () => recognition.start();
 document.getElementById('stopBtn').onclick = () => recognition.stop();
+
+recognition.onresult = (event) => {
+  const transcript = event.results[event.results.length-1][0].transcript.trim();
+  sendMessage(transcript,true);
+}
 </script>
 
 </body>
